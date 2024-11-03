@@ -158,7 +158,7 @@ class Data_Processor:
             'L': 1,   # 振り子の長さ [m]
         }
         self.vector_init = [np.pi/4, 0] # 初期値 [theta, omega]
-        self.Nt = 1000
+        self.Nt = 10000
         self.dt = 0.01
         self.output_path = 'output.xlsx'
         
@@ -175,7 +175,7 @@ class Data_Processor:
         self.output_path = output_path
     ### パラメータ設定メソッド群 End ###
     
-    def write_excel(self, path, list_time, list_vector, list_theta_analytics = 0, list_theta_fitting = 0):
+    def write_excel(self, path, list_time, list_vector, list_theta_analytics = [], list_theta_fitting = []):
         '''
         データとパラメータをExcelに書き込む
         
@@ -187,10 +187,10 @@ class Data_Processor:
             df_vector.index = list_time
             
             
-            if list_theta_analytics != 0:
+            if len(list_theta_analytics) != 0:
                 df_vector['theta_analytics'] = list_theta_analytics
             
-            if list_theta_fitting != 0:
+            if len(list_theta_fitting) != 0:
                 df_vector['theta_fitting'] = list_theta_fitting
             
             df_vector.to_excel(writer, sheet_name = 'Pos')
@@ -216,7 +216,7 @@ class Data_Processor:
         フィッティング実行メソッド
         注意: do_sim()メソッドを実行した後に実行すること
         '''
-        # list_theta_fitting = Fitting_Method().do_fit(self.list_time, self.list_vector)
+        # list_theta_fitting = Fitting_time_space().do_fit(self.list_time, self.list_vector)
         
         list_theta_fitting = Fitting_s_space().do_fit(self.list_time, self.list_vector)
         
@@ -274,7 +274,7 @@ class Fitting_Class:
         '''
         pass
     
-class Fitting_Method(Fitting_Class):
+class Fitting_time_space(Fitting_Class):
     def __init__(self):
         self.index_wide = 0
         self.mode_separate = 1 # 0: 1/2周期、1: 1/4周期、2: 1/8周期で分割を行う
@@ -370,10 +370,10 @@ class Fitting_Method(Fitting_Class):
         return index_zero_cross
     
 class Fitting_s_space(Fitting_Class):
-    def __init__(self):
-        self.index_wide = 0
-        self.mode_separate = 1 # 0: 1/2周期、1: 1/4周期、2: 1/8周期で分割を行う
     
+    def __init__(self):
+        self.range_fitting = 10
+
     def calc_Laplace(self, list_time, list_sig):
         '''
         ラプラス変換を実行
@@ -398,26 +398,6 @@ class Fitting_s_space(Fitting_Class):
             list_sig_s.append(laplace)
         return list_s, np.array(list_sig_s)
     
-    def func_eval(self, wave1, wave2):
-        ave = 0
-        Nt = min(len(wave1), len(wave2))
-        for i in np.arange(0, Nt, 1):
-            ave += (wave1[i] - wave2[i])**2
-        ave /= Nt
-        return np.sqrt(ave)
-    
-    def func_objective(self, trial):
-        '''
-        目的関数
-        '''
-        a = trial.suggest_float('a', 0, 10)
-        b = trial.suggest_float('b', 0, 10)
-        c = trial.suggest_float('c', 0, 10)
-        
-        y = a*list_s**2 + b*list_s + c
-        ans = func_eval(y, self.list_tgt)
-        return ans
-    
     def do_fit(self, list_time, list_vector):
         '''
         フィッティングを実行するためのメソッド
@@ -431,36 +411,30 @@ class Fitting_s_space(Fitting_Class):
         '''
         list_time = np.array(list_time)
         list_theta = np.array([vector[0] for vector in list_vector]) # thetaのみ抽出
-        list_omega = np.array([vector[1] for vector in list_vector]) # omegaのみ抽出
+        # list_omega = np.array([vector[1] for vector in list_vector]) # omegaのみ抽出
         stroke_width = list_theta[0]
         
-        list_s, list_omega_s = self.calc_Laplace(list_time, -list_omega)
+        # 初期時刻シフト
+        index_zero_cross = self.detect_1st_zero_crossing(list_theta)
+        print('zero point: time[s]=', list_time[index_zero_cross], 'theta=', list_theta[index_zero_cross])
+        list_time_shift = list_time[index_zero_cross:] - list_time[index_zero_cross]
+        list_theta_shift = list_theta[index_zero_cross:]
+
+        list_s, list_theta_s = self.calc_Laplace(list_time_shift, list_theta_shift)
         
-        # optunaで探索範囲を制限する
-#         self.list_s = list_s.copy()
-#         self.list_tgt = 1 / list_omega_s
-#         self.study = optuna.create_study()
-#         self.study.optimize(seld.func_objective, n_trials = 500)
-        
-#         self.trials = sorted(self.study.best_trials, key=lambda t: t.values)
-#         for trial in self.trials:
-#             params = trial.params.copy()
-#             print(params)
-            
-#             a = params['a']
-#             b = params['b']
-#             c = params['c']
-        
-        a,b,c = self.least_square(list_s, 1/list_omega_s)
+        list_tgt = 1/list_theta_s
+        a,b,c = self.least_square(list_s[:self.range_fitting], list_tgt[:self.range_fitting])
         print(a,b,c)
-        list_omega_s_fit = self.fit_func(list_s, [a,b,c])
+        print(1,b/a,c/a)
         
-        plt.plot(1/list_omega_s)
-        plt.plot(list_omega_s_fit, 'r--')
+        list_fit = self.fit_func(list_s, [a,b,c])
+        
+        plt.plot(list_tgt)
+        plt.plot(list_fit, 'r--')
         plt.show()
         
-        # システム応答を
-        sys = tf([1], [a,b,c])
+        # システム応答
+        sys = tf([1], [1,b/a,c/a])
         (list_theta_fitting, _) = matlab.step(sys, list_time)
         ini = list_theta_fitting[0]
         end = list_theta_fitting[-1]
@@ -470,6 +444,8 @@ class Fitting_s_space(Fitting_Class):
         plt.plot(list_theta)
         plt.plot(list_theta_fitting)
         plt.show()
+        
+        # print(list_theta_fitting)
         
         return list_theta_fitting
         
@@ -486,7 +462,7 @@ class Fitting_s_space(Fitting_Class):
         index_zero_cross = 0
         for it in np.arange(1, len(list_target), 1):
             if list_target[it-1] * list_target[it] < 0:
-                time_zero_cross = it
+                index_zero_cross = it
                 break
         return index_zero_cross
     
@@ -533,7 +509,7 @@ class test(Fitting_s_space):
 if __name__=='__main__':
     data_processor = Data_Processor()
     data_processor.setup_by_hand() # パラメータと初期値入力
-    # data_processor.do_sim()        # 時間発展の計算
-    # data_processor.do_fit()        # フィッティング実行
+    data_processor.do_sim()        # 時間発展の計算
+    data_processor.do_fit()        # フィッティング実行
     
-    test().do_test()
+    # test().do_test()
