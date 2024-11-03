@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
+from control import matlab, tf
 
 class Physical_SIM:
     '''
@@ -214,12 +216,15 @@ class Data_Processor:
         フィッティング実行メソッド
         注意: do_sim()メソッドを実行した後に実行すること
         '''
-        list_theta_fitting = Fitting_Method().do_fit(self.list_time, self.list_vector)
+        # list_theta_fitting = Fitting_Method().do_fit(self.list_time, self.list_vector)
+        
+        list_theta_fitting = Fitting_s_space().do_fit(self.list_time, self.list_vector)
+        
         self.write_excel(self.output_path, self.list_time, self.list_vector, self.list_theta_analytics, list_theta_fitting)
     
-class Fitting_Method:
+class Fitting_Class:
     def __init__(self):
-        self.index_wide = 9
+        pass
     
     def fit_func(self, x, params):
         '''
@@ -266,6 +271,17 @@ class Fitting_Method:
     def do_fit(self, list_time, list_vector):
         '''
         フィッティングを実行するためのメソッド
+        '''
+        pass
+    
+class Fitting_Method(Fitting_Class):
+    def __init__(self):
+        self.index_wide = 0
+        self.mode_separate = 1 # 0: 1/2周期、1: 1/4周期、2: 1/8周期で分割を行う
+    
+    def do_fit(self, list_time, list_vector):
+        '''
+        フィッティングを実行するためのメソッド
         波形を切り出して、その部分ごとにフィッティングを行う
         
         入力
@@ -285,16 +301,18 @@ class Fitting_Method:
         index_zero_theta.append(len(list_time))
         
         # ピーク時間を追加（1/4周期フィッティング）
-        index_zero_theta.extend(index_peak_theta)
-        index_zero_theta.sort()
+        if self.mode_separate > 0:
+            index_zero_theta.extend(index_peak_theta)
+            index_zero_theta.sort()
         
-        # 時間をさらに半分にする
-        index_zero_theta_half = []
-        for it in np.arange(1, len(index_zero_theta), 1):
-            index_mid = (index_zero_theta[it-1] + index_zero_theta[it]) // 2
-            index_zero_theta_half.append(index_mid)
-        index_zero_theta.extend(index_zero_theta_half)
-        index_zero_theta.sort()
+        # 時間をさらに半分にする（1/8周期フィッティング）
+        if self.mode_separate > 1:
+            index_zero_theta_half = []
+            for it in np.arange(1, len(index_zero_theta), 1):
+                index_mid = (index_zero_theta[it-1] + index_zero_theta[it]) // 2
+                index_zero_theta_half.append(index_mid)
+            index_zero_theta.extend(index_zero_theta_half)
+            index_zero_theta.sort()
     
         # print(index_zero_theta)
         
@@ -343,18 +361,179 @@ class Fitting_Method:
         list_target: list, ゼロ点を検知するターゲット(角度か角速度)
         
         出力
-        time_zero_cross: list, ゼロ点を横切った時のlist_targetのインデックス
+        index_zero_cross: list, ゼロ点を横切った時のlist_targetのインデックス
         '''
-        time_zero_cross = []
+        index_zero_cross = []
         for it in np.arange(1, len(list_target), 1):
             if list_target[it-1] * list_target[it] < 0:
-                time_zero_cross.append(it)
-        return time_zero_cross
+                index_zero_cross.append(it)
+        return index_zero_cross
     
+class Fitting_s_space(Fitting_Class):
+    def __init__(self):
+        self.index_wide = 0
+        self.mode_separate = 1 # 0: 1/2周期、1: 1/4周期、2: 1/8周期で分割を行う
+    
+    def calc_Laplace(self, list_time, list_sig):
+        '''
+        ラプラス変換を実行
+        
+        入力
+        list_time: list, 時間
+        list_sig: list, ラプラス変換する信号
+        
+        出力
+        list_s: list, s(=i*f)
+        list_sig_s: list, ラプラス変換後の信号
+        '''
+        list_sig_s = []
+        dt = list_time[1] - list_time[0]
+        list_s = np.arange(0, 1/dt, 0.1)
+        for s in list_s:
+            laplace = 0
+            for it, t in enumerate(list_time):
+                exp_s = np.exp(-s*t) * list_sig[it]
+                laplace += exp_s
+            laplace *= dt
+            list_sig_s.append(laplace)
+        return list_s, np.array(list_sig_s)
+    
+    def func_eval(self, wave1, wave2):
+        ave = 0
+        Nt = min(len(wave1), len(wave2))
+        for i in np.arange(0, Nt, 1):
+            ave += (wave1[i] - wave2[i])**2
+        ave /= Nt
+        return np.sqrt(ave)
+    
+    def func_objective(self, trial):
+        '''
+        目的関数
+        '''
+        a = trial.suggest_float('a', 0, 10)
+        b = trial.suggest_float('b', 0, 10)
+        c = trial.suggest_float('c', 0, 10)
+        
+        y = a*list_s**2 + b*list_s + c
+        ans = func_eval(y, self.list_tgt)
+        return ans
+    
+    def do_fit(self, list_time, list_vector):
+        '''
+        フィッティングを実行するためのメソッド
+        
+        入力
+        list_time: list, 時間
+        list_vector: list, 角度、角速度の時間発展
+        
+        出力
+        list_theta_fitting: list, フィッティングされた角度のリスト
+        '''
+        list_time = np.array(list_time)
+        list_theta = np.array([vector[0] for vector in list_vector]) # thetaのみ抽出
+        list_omega = np.array([vector[1] for vector in list_vector]) # omegaのみ抽出
+        stroke_width = list_theta[0]
+        
+        list_s, list_omega_s = self.calc_Laplace(list_time, -list_omega)
+        
+        # optunaで探索範囲を制限する
+#         self.list_s = list_s.copy()
+#         self.list_tgt = 1 / list_omega_s
+#         self.study = optuna.create_study()
+#         self.study.optimize(seld.func_objective, n_trials = 500)
+        
+#         self.trials = sorted(self.study.best_trials, key=lambda t: t.values)
+#         for trial in self.trials:
+#             params = trial.params.copy()
+#             print(params)
+            
+#             a = params['a']
+#             b = params['b']
+#             c = params['c']
+        
+        a,b,c = self.least_square(list_s, 1/list_omega_s)
+        print(a,b,c)
+        list_omega_s_fit = self.fit_func(list_s, [a,b,c])
+        
+        plt.plot(1/list_omega_s)
+        plt.plot(list_omega_s_fit, 'r--')
+        plt.show()
+        
+        # システム応答を
+        sys = tf([1], [a,b,c])
+        (list_theta_fitting, _) = matlab.step(sys, list_time)
+        ini = list_theta_fitting[0]
+        end = list_theta_fitting[-1]
+        list_theta_fitting = list_theta_fitting / (end - ini)
+        list_theta_fitting = -stroke_width*list_theta_fitting + stroke_width
+        
+        plt.plot(list_theta)
+        plt.plot(list_theta_fitting)
+        plt.show()
+        
+        return list_theta_fitting
+        
+    def detect_1st_zero_crossing(self, list_target):
+        '''
+        初めてゼロ点を横切った時のインデックスを検出するメソッド
+        
+        入力
+        list_target: list, ゼロ点を検知するターゲット(角度か角速度)
+        
+        出力
+        time_zero_cross: int, ゼロ点を横切った時のlist_targetのインデックス
+        '''
+        index_zero_cross = 0
+        for it in np.arange(1, len(list_target), 1):
+            if list_target[it-1] * list_target[it] < 0:
+                time_zero_cross = it
+                break
+        return index_zero_cross
+    
+class test(Fitting_s_space):
+    
+    def func(self):
+        self.gamma = 1
+        self.lambda_t = 3.09
+        self.delta = 0
+        
+        list_time = np.arange(0, 100, 0.01)
+        list_theta = np.exp(-self.gamma*list_time)*np.sin(self.lambda_t*list_time+self.delta)
+        # list_theta = np.exp(-self.gamma*list_time)*np.cos(self.lambda_t*list_time+self.delta)
+        
+        return list_time, list_theta
+    
+    def do_test(self):
+        list_time, list_theta = self.func()
+        list_s, list_theta_s = self.calc_Laplace(list_time, list_theta)
+        
+        
+        list_tgt = 1/list_theta_s
+        a,b,c = self.least_square(list_s[:100], list_tgt[:100])
+        list_theta_s_fit = self.fit_func(list_s, [a,b,c])
+        print(a,b,c)
+        
+        plt.plot(list_tgt)
+        plt.plot(list_theta_s_fit, 'r--')
+        plt.show()
+        
+        df = pd.DataFrame()
+        df.index = list_s
+        df['tgt'] = list_tgt
+        df['fit'] = list_theta_s_fit
+        
+        
+        df.to_excel('test.xlsx')
+        
+        
+        
+        
+        
     
 if __name__=='__main__':
     data_processor = Data_Processor()
     data_processor.setup_by_hand() # パラメータと初期値入力
-    data_processor.do_sim()        # 時間発展の計算
-    data_processor.do_fit()        # フィッティング実行
+    # data_processor.do_sim()        # 時間発展の計算
+    # data_processor.do_fit()        # フィッティング実行
     
+    test().do_test()
