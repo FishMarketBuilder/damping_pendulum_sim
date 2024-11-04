@@ -140,11 +140,19 @@ class Data_Processor:
     データ処理のためのクラス
     '''
     def __init__(self):
+        # self.mode_fitting = 'time_space'
+        self.mode_fitting = 's_space'
+        
+        
         self.params = {}
         self.vector_init = []
         self.Nt = 0
         self.dt = 0
-        self.output_path = ''
+        self.path_output_fit = ''
+        
+        
+        self.list_theta_analytics = []
+        self.list_theta_fitting = []
         
     ### パラメータ設定メソッド群 Start ###
     def setup_by_hand(self):
@@ -160,11 +168,11 @@ class Data_Processor:
         self.vector_init = [np.pi/4, 0] # 初期値 [theta, omega]
         self.Nt = 10000
         self.dt = 0.01
-        self.output_path = 'output.xlsx'
+        self.path_output_fit = 'output.xlsx'
         
         print(self.params)
         
-    def setup_by_input(self, params, vector_init, Nt, dt, output_path):
+    def setup_by_input(self, params, vector_init, Nt, dt, path_output_fit):
         '''
         入力でのパラメータ設定。数種類のパラメータ設定で順次シミュレーションする際に使用
         '''
@@ -172,26 +180,27 @@ class Data_Processor:
         self.vector_init = vector_init.copy()
         self.Nt = Nt
         self.dt = dt
-        self.output_path = output_path
+        self.path_output_fit = path_output_fit
     ### パラメータ設定メソッド群 End ###
     
-    def write_excel(self, path, list_time, list_vector, list_theta_analytics = [], list_theta_fitting = []):
+    def write_excel(self):
         '''
         データとパラメータをExcelに書き込む
         
         Posシート: 角度・角速度の時間発展結果
         Paramsシート: パラメータデータ
+        注意: do_sim()メソッドを実行した後に実行すること
         '''
-        with pd.ExcelWriter(path) as writer:
-            df_vector = pd.DataFrame(list_vector, columns=['theta', 'omega'])
-            df_vector.index = list_time
+        with pd.ExcelWriter(self.path_output_fit) as writer:
+            df_vector = pd.DataFrame(self.list_vector, columns=['theta', 'omega'])
+            df_vector.index = self.list_time
             
             
-            if len(list_theta_analytics) != 0:
-                df_vector['theta_analytics'] = list_theta_analytics
+            if len(self.list_theta_analytics) != 0:
+                df_vector['theta_analytics'] = self.list_theta_analytics
             
-            if len(list_theta_fitting) != 0:
-                df_vector['theta_fitting'] = list_theta_fitting
+            if len(self.list_theta_fitting) != 0:
+                df_vector['theta_fitting'] = self.list_theta_fitting
             
             df_vector.to_excel(writer, sheet_name = 'Pos')
             
@@ -205,7 +214,6 @@ class Data_Processor:
         '''
         list_time, list_vector = Physical_SIM().calc_time_evolution(self.params, self.vector_init, self.Nt, self.dt)
         list_theta_analytics =  Physical_SIM().calc_analytical_solution(self.params, self.vector_init, list_time)
-        self.write_excel(self.output_path, list_time, list_vector, list_theta_analytics)
         
         self.list_time = list_time
         self.list_vector = list_vector
@@ -216,13 +224,18 @@ class Data_Processor:
         フィッティング実行メソッド
         注意: do_sim()メソッドを実行した後に実行すること
         '''
-        # list_theta_fitting = Fitting_time_space().do_fit(self.list_time, self.list_vector)
+        if self.mode_fitting == 'time_space':
+            list_theta_fitting = Fitting_time_space().do_fit(self.list_time, self.list_vector)
+        if self.mode_fitting == 's_space':
+            list_theta_fitting = Fitting_s_space().do_fit(self.list_time, self.list_vector)
         
-        list_theta_fitting = Fitting_s_space().do_fit(self.list_time, self.list_vector)
-        
-        self.write_excel(self.output_path, self.list_time, self.list_vector, self.list_theta_analytics, list_theta_fitting)
+        self.list_theta_fitting = list_theta_fitting
     
 class Fitting_Class:
+    '''
+    フィッティング機能クラスの大元のクラス
+    共通して使用するメソッドを格納
+    '''
     def __init__(self):
         pass
     
@@ -271,6 +284,7 @@ class Fitting_Class:
     def do_fit(self, list_time, list_vector):
         '''
         フィッティングを実行するためのメソッド
+        Data_Processorから呼び出すために使用
         '''
         pass
     
@@ -370,10 +384,31 @@ class Fitting_time_space(Fitting_Class):
         return index_zero_cross
     
 class Fitting_s_space(Fitting_Class):
+    '''
+    伝達関数をフィットするためのクラス
+    '''
     
     def __init__(self):
-        self.range_fitting = 10
+        self.range_fitting = 3
+        self.path_output_fit = 'func_2nd_fit.xlsx'
 
+    def detect_1st_zero_crossing(self, list_target):
+        '''
+        初めてゼロ点を横切った時のインデックスを検出するメソッド
+        
+        入力
+        list_target: list, ゼロ点を検知するターゲット(角度か角速度)
+        
+        出力
+        time_zero_cross: int, ゼロ点を横切った時のlist_targetのインデックス
+        '''
+        index_zero_cross = 0
+        for it in np.arange(1, len(list_target), 1):
+            if list_target[it-1] * list_target[it] < 0:
+                index_zero_cross = it
+                break
+        return index_zero_cross
+    
     def calc_Laplace(self, list_time, list_sig):
         '''
         ラプラス変換を実行
@@ -398,6 +433,54 @@ class Fitting_s_space(Fitting_Class):
             list_sig_s.append(laplace)
         return list_s, np.array(list_sig_s)
     
+    def fitting(self, list_time, list_theta):
+        '''
+        波形に対してラプラス変換を実行し、その逆数に対してフィットを行う
+        
+        入力
+        list_time: list, 時間
+        list_theta: list, フィットする波形
+        '''
+        list_s, list_theta_s = self.calc_Laplace(list_time, list_theta)
+        
+        list_tgt = 1/list_theta_s
+        params = self.least_square(list_s[:self.range_fitting], list_tgt[:self.range_fitting])
+        print(params)
+        print(1,params[1]/params[0],params[2]/params[0])
+        
+        list_fit = self.fit_func(list_s, params)
+        
+        plt.plot(list_tgt)
+        plt.plot(list_fit, 'r--')
+        plt.show()
+        
+        return params, list_s, list_tgt, list_fit
+    
+    def calc_step_res_by_control(self, params, stroke_width, list_time):
+        '''
+        伝達関数のパラメータからSTEP応答を計算。ただし、controlモジュールを用いる
+        伝達関数: params[2]/(params[0]*s^2 + params[1]*s + params[2])
+        DCゲインが1になるように調整。
+        
+        入力
+        params: list, パラメータ
+        stroke_width: 元データのストローク幅。出力のSTEP応答はこれに合わせる
+        
+        出力
+        list_theta_fitting: list, フィット関数
+        '''
+    
+        a = params[0]
+        b = params[1]
+        c = params[2]
+        
+        # システム応答
+        sys = tf([c/a], [1,b/a,c/a])
+        (list_theta_fitting, _) = matlab.step(sys, list_time)
+        list_theta_fitting = -stroke_width*list_theta_fitting + stroke_width
+        
+        return list_theta_fitting
+        
     def do_fit(self, list_time, list_vector):
         '''
         フィッティングを実行するためのメソッド
@@ -414,59 +497,51 @@ class Fitting_s_space(Fitting_Class):
         # list_omega = np.array([vector[1] for vector in list_vector]) # omegaのみ抽出
         stroke_width = list_theta[0]
         
-        # 初期時刻シフト
+        # 初期時刻シフト(exp(-gamma/2*t)*sin(lambda*t)になるようにする)
         index_zero_cross = self.detect_1st_zero_crossing(list_theta)
         print('zero point: time[s]=', list_time[index_zero_cross], 'theta=', list_theta[index_zero_cross])
         list_time_shift = list_time[index_zero_cross:] - list_time[index_zero_cross]
         list_theta_shift = list_theta[index_zero_cross:]
 
-        list_s, list_theta_s = self.calc_Laplace(list_time_shift, list_theta_shift)
+        # フィットとフィット関数計算
+        params, list_s, list_theta_s, list_theta_s_fit = self.fitting(list_time_shift, list_theta_shift)
+        list_theta_fitting = self.calc_step_res_by_control(params, stroke_width, list_time)
         
-        list_tgt = 1/list_theta_s
-        a,b,c = self.least_square(list_s[:self.range_fitting], list_tgt[:self.range_fitting])
-        print(a,b,c)
-        print(1,b/a,c/a)
+        self.params = params
+        self.list_s = list_s
+        self.list_theta_s = list_theta_s
+        self.list_theta_s_fit = list_theta_s_fit
         
-        list_fit = self.fit_func(list_s, [a,b,c])
-        
-        plt.plot(list_tgt)
-        plt.plot(list_fit, 'r--')
-        plt.show()
-        
-        # システム応答
-        sys = tf([1], [1,b/a,c/a])
-        (list_theta_fitting, _) = matlab.step(sys, list_time)
-        ini = list_theta_fitting[0]
-        end = list_theta_fitting[-1]
-        list_theta_fitting = list_theta_fitting / (end - ini)
-        list_theta_fitting = -stroke_width*list_theta_fitting + stroke_width
-        
-        plt.plot(list_theta)
-        plt.plot(list_theta_fitting)
-        plt.show()
-        
-        # print(list_theta_fitting)
+        # Excel出力
+        self.write_excel()
         
         return list_theta_fitting
         
-    def detect_1st_zero_crossing(self, list_target):
+    def write_excel(self):
         '''
-        初めてゼロ点を横切った時のインデックスを検出するメソッド
+        データとパラメータをExcelに書き込む
         
-        入力
-        list_target: list, ゼロ点を検知するターゲット(角度か角速度)
-        
-        出力
-        time_zero_cross: int, ゼロ点を横切った時のlist_targetのインデックス
+        s_spaceシート: ラプラス変換後の結果
+        Paramsシート: フィットパラメータデータ
         '''
-        index_zero_cross = 0
-        for it in np.arange(1, len(list_target), 1):
-            if list_target[it-1] * list_target[it] < 0:
-                index_zero_cross = it
-                break
-        return index_zero_cross
-    
+        with pd.ExcelWriter(self.path_output_fit) as writer:
+            df_vector = pd.DataFrame(self.list_theta_s, columns=['theta'])
+            df_vector.index = self.list_s
+            
+            df_vector['theta_s_fit'] = self.list_theta_s_fit
+            
+            df_vector.to_excel(writer, sheet_name = 's_space')
+            
+            df_params = pd.DataFrame(self.params, columns=['Fitting_Parameter'])
+            df_params.to_excel(writer, sheet_name = 'Params')
+            
 class test(Fitting_s_space):
+    '''
+    メイン機能とは関係ないクラス
+    
+    ラプラス変換の精度を確認するために、
+    フィット関数が厳密に計算可能な関数に対してラプラス変換を実施
+    '''
     
     def func(self):
         self.gamma = 1
@@ -482,7 +557,6 @@ class test(Fitting_s_space):
     def do_test(self):
         list_time, list_theta = self.func()
         list_s, list_theta_s = self.calc_Laplace(list_time, list_theta)
-        
         
         list_tgt = 1/list_theta_s
         a,b,c = self.least_square(list_s[:100], list_tgt[:100])
@@ -511,5 +585,6 @@ if __name__=='__main__':
     data_processor.setup_by_hand() # パラメータと初期値入力
     data_processor.do_sim()        # 時間発展の計算
     data_processor.do_fit()        # フィッティング実行
+    data_processor.write_excel()   # 結果をExcel出力
     
     # test().do_test()
