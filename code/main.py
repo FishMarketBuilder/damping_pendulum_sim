@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-from control import matlab, tf
 
 class Physical_SIM:
     '''
@@ -290,10 +289,10 @@ class Fitting_Class:
         pass
     
 class Fitting_time_space(Fitting_Class):
-        '''
-        フィッティングを実行するためのクラス
-        時間領域で波形を切り出して、その部分ごとにフィッティングを行う
-        '''
+    '''
+    フィッティングを実行するためのクラス
+    時間領域で波形を切り出して、その部分ごとにフィッティングを行う
+    '''
         
     def __init__(self):
         self.index_wide = 0
@@ -462,29 +461,40 @@ class Fitting_s_space(Fitting_Class):
         
         return params, list_s, list_tgt, list_fit
     
-    def calc_step_res_by_control(self, params, stroke_width, list_time):
+    def calc_response(self, params, list_time, mode, stroke_width = 0):
         '''
-        伝達関数のパラメータからSTEP応答を計算。ただし、controlモジュールを用いる
-        伝達関数: params[2]/(params[0]*s^2 + params[1]*s + params[2])
-        DCゲインが1になるように調整し計算。最後にstroke_widthでストローク幅を調整
+        フィットした伝達関数のパラメータからインパルス応答orステップ応答を計算
+        伝達関数: params[2]/(params[0]*s^2 + params[1]*s + params[2])  ※DCゲインが1になるように調整
         
         入力
         params: list, パラメータ
-        stroke_width: 元データのストローク幅。出力のSTEP応答はこれに合わせる
+        list_time: list, 時間
+        mode: string, インパルス応答 or STEP応答の選択
+        stroke_width: float, ストローク幅。出力のSTEP応答はこれに合わせる
         
         出力
         list_theta_fitting: list, フィット関数
         '''
-    
-        a = params[0]
-        b = params[1]
-        c = params[2]
+        list_time = np.array(list_time)
+        a = params[0] * np.sign(params[0])
+        b = params[1] * np.sign(params[0])
+        c = params[2] * np.sign(params[0])
         
-        # システム応答
-        sys = tf([c/a], [1,b/a,c/a])
-        (list_theta_fitting, _) = matlab.step(sys, list_time)
-        list_theta_fitting = -stroke_width*list_theta_fitting + stroke_width
+        if mode == 'impulse':
+            A = 1 /np.sqrt(a*c - b**2 / 4)
+            lambda_t = np.sqrt(c/a - b**2/4/a**2)
+            gamma = b/a
+            list_theta_fitting = A*np.exp(-gamma/2*list_time)*np.sin(lambda_t*list_time)
         
+        if mode == 'step':
+            A = stroke_width
+            omega_n = np.sqrt(c/a)
+            omega_d = omega_n * np.sqrt(1 - b**2/4/a/c)
+            xi = 0.5*b/np.sqrt(a*c)
+            delta = np.arctan(np.sqrt(1-xi**2)/xi)
+            print(A, omega_n, omega_d, xi, delta)
+            list_theta_fitting = A*np.exp(-xi*omega_n*list_time)/np.sqrt(1-xi**2)*np.sin(omega_d*list_time + delta)
+            
         return list_theta_fitting
         
     def do_fit(self, list_time, list_vector):
@@ -511,7 +521,7 @@ class Fitting_s_space(Fitting_Class):
 
         # フィットとフィット関数計算
         params, list_s, list_theta_s, list_theta_s_fit = self.fitting(list_time_shift, list_theta_shift)
-        list_theta_fitting = self.calc_step_res_by_control(params, stroke_width, list_time) # TODO: controlメソッドを使わないようにする
+        list_theta_fitting = self.calc_response(params, list_time, 'step', stroke_width)
         
         self.params = params
         self.list_s = list_s
