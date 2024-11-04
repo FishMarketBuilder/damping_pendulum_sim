@@ -140,9 +140,9 @@ class Data_Processor:
     データ処理のためのクラス
     '''
     def __init__(self):
-        # self.mode_fitting = 'time_space'
-        self.mode_fitting = 's_space'
-        
+        # フィットモード選択
+        # self.mode_fitting = 'time_space' # 時間区間での切り貼りフィット
+        self.mode_fitting = 's_space' # 伝達関数推定
         
         self.params = {}
         self.vector_init = []
@@ -150,7 +150,8 @@ class Data_Processor:
         self.dt = 0
         self.path_output_fit = ''
         
-        
+        self.list_time = []        
+        self.list_vector = []
         self.list_theta_analytics = []
         self.list_theta_fitting = []
         
@@ -172,15 +173,15 @@ class Data_Processor:
         
         print(self.params)
         
-    def setup_by_input(self, params, vector_init, Nt, dt, path_output_fit):
-        '''
-        入力でのパラメータ設定。数種類のパラメータ設定で順次シミュレーションする際に使用
-        '''
-        self.params = params.copy()
-        self.vector_init = vector_init.copy()
-        self.Nt = Nt
-        self.dt = dt
-        self.path_output_fit = path_output_fit
+    # def setup_by_input(self, params, vector_init, Nt, dt, path_output_fit):
+    #     '''
+    #     入力でのパラメータ設定。数種類のパラメータ設定で順次シミュレーションする際に使用
+    #     '''
+    #     self.params = params.copy()
+    #     self.vector_init = vector_init.copy()
+    #     self.Nt = Nt
+    #     self.dt = dt
+    #     self.path_output_fit = path_output_fit
     ### パラメータ設定メソッド群 End ###
     
     def write_excel(self):
@@ -289,6 +290,11 @@ class Fitting_Class:
         pass
     
 class Fitting_time_space(Fitting_Class):
+        '''
+        フィッティングを実行するためのクラス
+        時間領域で波形を切り出して、その部分ごとにフィッティングを行う
+        '''
+        
     def __init__(self):
         self.index_wide = 0
         self.mode_separate = 1 # 0: 1/2周期、1: 1/4周期、2: 1/8周期で分割を行う
@@ -460,7 +466,7 @@ class Fitting_s_space(Fitting_Class):
         '''
         伝達関数のパラメータからSTEP応答を計算。ただし、controlモジュールを用いる
         伝達関数: params[2]/(params[0]*s^2 + params[1]*s + params[2])
-        DCゲインが1になるように調整。
+        DCゲインが1になるように調整し計算。最後にstroke_widthでストローク幅を調整
         
         入力
         params: list, パラメータ
@@ -505,17 +511,22 @@ class Fitting_s_space(Fitting_Class):
 
         # フィットとフィット関数計算
         params, list_s, list_theta_s, list_theta_s_fit = self.fitting(list_time_shift, list_theta_shift)
-        list_theta_fitting = self.calc_step_res_by_control(params, stroke_width, list_time)
+        list_theta_fitting = self.calc_step_res_by_control(params, stroke_width, list_time) # TODO: controlメソッドを使わないようにする
         
         self.params = params
         self.list_s = list_s
         self.list_theta_s = list_theta_s
         self.list_theta_s_fit = list_theta_s_fit
         
+        list_theta_fitting_add = [0]*len(list_theta_fitting)
+        # TODO: 高精度化のための追加フィット
+        # params, list_s, list_theta_s, list_theta_s_fit = self.fitting(list_time, list_theta - list_theta_fitting)
+        # list_theta_fitting_add = self.calc_step_res_by_control(params, stroke_width, list_time) # TODO: インパルス応答に対する波形生成メソッドに変更
+        
         # Excel出力
         self.write_excel()
         
-        return list_theta_fitting
+        return list_theta_fitting + list_theta_fitting_add
         
     def write_excel(self):
         '''
