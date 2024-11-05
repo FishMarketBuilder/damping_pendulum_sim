@@ -149,7 +149,7 @@ class Data_Processor:
         self.dt = 0
         self.path_output_fit = ''
         
-        self.list_time = []        
+        self.list_time = []
         self.list_vector = []
         self.list_theta_analytics = []
         self.list_theta_fitting = []
@@ -461,7 +461,7 @@ class Fitting_s_space(Fitting_Class):
         
         return params, list_s, list_tgt, list_fit
     
-    def calc_response(self, params, list_time, mode, stroke_width = 0):
+    def calc_response(self, params, list_time, mode, time_zero_cross = 0, stroke_width = 0):
         '''
         フィットした伝達関数のパラメータからインパルス応答orステップ応答を計算
         伝達関数: params[2]/(params[0]*s^2 + params[1]*s + params[2])  ※DCゲインが1になるように調整
@@ -475,15 +475,18 @@ class Fitting_s_space(Fitting_Class):
         出力
         list_theta_fitting: list, フィット関数
         '''
+        print(mode, time_zero_cross, stroke_width)
         list_time = np.array(list_time)
         a = params[0] * np.sign(params[0])
         b = params[1] * np.sign(params[0])
         c = params[2] * np.sign(params[0])
         
         if mode == 'impulse':
-            A = 1 /np.sqrt(a*c - b**2 / 4)
             lambda_t = np.sqrt(c/a - b**2/4/a**2)
             gamma = b/a
+            A = 1 /np.sqrt(a*c - b**2 / 4)
+            # A *= np.exp(gamma/2*time_zero_cross)
+            print(A, gamma, lambda_t)
             list_theta_fitting = A*np.exp(-gamma/2*list_time)*np.sin(lambda_t*list_time)
         
         if mode == 'step':
@@ -492,7 +495,7 @@ class Fitting_s_space(Fitting_Class):
             omega_d = omega_n * np.sqrt(1 - b**2/4/a/c)
             xi = 0.5*b/np.sqrt(a*c)
             delta = np.arctan(np.sqrt(1-xi**2)/xi)
-            print(A, omega_n, omega_d, xi, delta)
+            # print(A, omega_n, omega_d, xi, delta)
             list_theta_fitting = A*np.exp(-xi*omega_n*list_time)/np.sqrt(1-xi**2)*np.sin(omega_d*list_time + delta)
             
         return list_theta_fitting
@@ -521,7 +524,7 @@ class Fitting_s_space(Fitting_Class):
 
         # フィットとフィット関数計算
         params, list_s, list_theta_s, list_theta_s_fit = self.fitting(list_time_shift, list_theta_shift)
-        list_theta_fitting = self.calc_response(params, list_time, 'step', stroke_width)
+        list_theta_fitting = self.calc_response(params, list_time, 'step', stroke_width = stroke_width)
         
         self.params = params
         self.list_s = list_s
@@ -530,8 +533,14 @@ class Fitting_s_space(Fitting_Class):
         
         list_theta_fitting_add = [0]*len(list_theta_fitting)
         # TODO: 高精度化のための追加フィット
-        # params, list_s, list_theta_s, list_theta_s_fit = self.fitting(list_time, list_theta - list_theta_fitting)
-        # list_theta_fitting_add = self.calc_step_res_by_control(params, stroke_width, list_time) # TODO: インパルス応答に対する波形生成メソッドに変更
+        list_tgt = list_theta - list_theta_fitting
+        index_zero_cross = self.detect_1st_zero_crossing(list_tgt)
+        print('zero point: time[s]=', list_time[index_zero_cross], 'theta=', list_theta[index_zero_cross])
+        list_time_shift = list_time[index_zero_cross:] - list_time[index_zero_cross]
+        list_tgt_shift = list_tgt[index_zero_cross:]
+        
+        params, list_s, list_theta_s, list_theta_s_fit = self.fitting(list_time_shift, list_tgt_shift)
+        list_theta_fitting_add = self.calc_response(params, list_time, 'impulse', time_zero_cross = list_time[index_zero_cross]) # TODO: インパルス応答に対する波形生成メソッドに変更
         
         # Excel出力
         self.write_excel()
