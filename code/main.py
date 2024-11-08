@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
+# from matplotlib import pyplot as plt
 
 class Physical_SIM:
     '''
@@ -140,8 +140,8 @@ class Data_Processor:
     '''
     def __init__(self):
         # フィットモード選択
-        # self.mode_fitting = 'time_space' # 時間区間での切り貼りフィット
-        # self.mode_fitting = 's_space' # 伝達関数推定
+        self.str_time_space = 'time_space' # 時間区間での切り貼りフィット
+        self.str_s_space = 's_space' # 伝達関数推定
         
         self.params = {}
         self.vector_init = []
@@ -170,23 +170,32 @@ class Data_Processor:
         self.dt = 0.01
         
         self.mode_fitting = mode_fitting
-        if self.mode_fitting == 'time_space': # 時間区間での切り貼りフィット
+        if self.mode_fitting == self.str_time_space: # 時間区間での切り貼りフィット
             self.path_output_fit = 'output_time_space.xlsx'
-        if self.mode_fitting == 's_space': # 伝達関数推定
+        if self.mode_fitting == self.str_s_space: # 伝達関数推定
             self.path_output_fit = 'output_s_space.xlsx'
         
-        print('Fitting mode: ', self.mode_fitting)
-        print('Physical parameter: ', self.params)
+        print('Fitting mode: ', self.mode_fitting, ' Start!!')
+        print('Physical parameter: ', self.params, ' Start!!')
         
-    # def setup_by_input(self, params, vector_init, Nt, dt, path_output_fit):
-    #     '''
-    #     入力でのパラメータ設定。数種類のパラメータ設定で順次シミュレーションする際に使用
-    #     '''
-    #     self.params = params.copy()
-    #     self.vector_init = vector_init.copy()
-    #     self.Nt = Nt
-    #     self.dt = dt
-    #     self.path_output_fit = path_output_fit
+#     def setup_by_input(self, params, vector_init, Nt, dt, path_output_fit, mode_fitting):
+#         '''
+#         入力でのパラメータ設定。数種類のパラメータ設定で順次シミュレーションする際に使用
+#         '''
+#         self.params = params.copy()
+#         self.vector_init = vector_init.copy()
+#         self.Nt = Nt
+#         self.dt = dt
+#         self.path_output_fit = path_output_fit
+#         self.mode_fitting = mode_fitting
+        
+#         if self.mode_fitting == self.str_time_space: # 時間区間での切り貼りフィット
+#             self.path_output_fit = 'output_time_space.xlsx'
+#         if self.mode_fitting == self.str_s_space: # 伝達関数推定
+#             self.path_output_fit = 'output_s_space.xlsx'
+            
+#        print('Fitting mode: ', self.mode_fitting, ' Start!!')
+#        print('Physical parameter: ', self.params, ' Start!!')
     ### パラメータ設定メソッド群 End ###
     
     def write_excel(self):
@@ -219,7 +228,7 @@ class Data_Processor:
             df_params.to_excel(writer, sheet_name = 'Params_Phys')
             
             
-            if len(Fitting_s_space().dict_fit_log) > 0:
+            if self.mode_fitting == self.str_s_space:
                 df_s_log = pd.DataFrame()
                 df_s_params = pd.DataFrame()
                 for key in Fitting_s_space().dict_fit_log.keys():
@@ -236,11 +245,11 @@ class Data_Processor:
         注意: パラメータ設定メソッド群(setup_*)のいずれかでパラメータ設定後に実行すること
         '''
         list_time, list_vector = Physical_SIM().calc_time_evolution(self.params, self.vector_init, self.Nt, self.dt)
-        list_theta_analytics =  Physical_SIM().calc_analytical_solution(self.params, self.vector_init, list_time)
+        # list_theta_analytics =  Physical_SIM().calc_analytical_solution(self.params, self.vector_init, list_time)
         
         self.list_time = list_time
         self.list_vector = list_vector
-        self.list_theta_analytics = list_theta_analytics
+        # self.list_theta_analytics = list_theta_analytics
         
     def do_fit(self):
         '''
@@ -420,7 +429,6 @@ class Fitting_s_space(Fitting_Class):
     
     def __init__(self):
         self.range_fitting = 3
-        self.path_output_fit = 'fit_s_space.xlsx'
         self.mode_high_accuracy = 1 # 1: 高精度モードOFF, 1: 高精度モードON
 
     def detect_1st_zero_crossing(self, list_target):

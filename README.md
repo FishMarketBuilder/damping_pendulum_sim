@@ -15,11 +15,7 @@
 .\code内で以下のコマンドを実行
 python main.py
 
-■フィットモード選択
-main.py内のData_Processorクラスの変数で選択可能
-
-方法①：時間区間での切り貼りフィット
-self.mode_fitting = 'time_space' 
-
-方法②：伝達関数推定によるフィット
-self.mode_fitting = 's_space'
+■出力
+2つのExcelファイルを出力
+output_time_space.xlsx: 時間区間での切り貼りフィット結果
+output_s_space.xlsx: 伝達関数推定によるフィット結果
