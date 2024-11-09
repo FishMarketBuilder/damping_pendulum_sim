@@ -175,8 +175,8 @@ class Data_Processor:
         if self.mode_fitting == self.str_s_space: # 伝達関数推定
             self.path_output_fit = 'output_s_space.xlsx'
         
-        print('Fitting mode: ', self.mode_fitting, ' Start!!')
-        print('Physical parameter: ', self.params, ' Start!!')
+        print('=== Fitting mode: ', self.mode_fitting, ' Start!! ===')
+        print('Physical parameter: ', self.params)
         
 #     def setup_by_input(self, params, vector_init, Nt, dt, path_output_fit, mode_fitting):
 #         '''
@@ -194,8 +194,8 @@ class Data_Processor:
 #         if self.mode_fitting == self.str_s_space: # 伝達関数推定
 #             self.path_output_fit = 'output_s_space.xlsx'
             
-#        print('Fitting mode: ', self.mode_fitting, ' Start!!')
-#        print('Physical parameter: ', self.params, ' Start!!')
+#        print('=== Fitting mode: ', self.mode_fitting, ' Start!! ===')
+#        print('Physical parameter: ', self.params)
     ### パラメータ設定メソッド群 End ###
     
     def write_excel(self):
@@ -225,7 +225,7 @@ class Data_Processor:
             df_vector.to_excel(writer, sheet_name = 'Pos')
             
             df_params = pd.DataFrame(list(self.params.items()), columns=['Parameter', 'Value'])
-            df_params.to_excel(writer, sheet_name = 'Params_Phys')
+            df_params.to_excel(writer, sheet_name = 'Params_Phys', index = False)
             
             
             if self.mode_fitting == self.str_s_space:
@@ -236,7 +236,7 @@ class Data_Processor:
                 for key in Fitting_s_space().dict_fit_params.keys():
                     df_s_params[key] = Fitting_s_space().dict_fit_params[key]
                 
-                df_s_log.to_excel(writer, sheet_name = 'S_space')
+                df_s_log.to_excel(writer, sheet_name = 'S_space', index = False)
                 df_s_params.to_excel(writer, sheet_name = 'Params_S_fit')
             
     def do_sim(self):
@@ -328,7 +328,7 @@ class Fitting_time_space(Fitting_Class):
         
     def __init__(self):
         self.index_wide = 0
-        self.mode_separate = 1 # 0: 1/2周期、1: 1/4周期、2: 1/8周期で分割を行う
+        self.mode_separate = 2 # 0: 1/2周期、1: 1/4周期、2: 1/8周期で分割を行う
     
     def do_fit(self, list_time, list_vector):
         '''
@@ -595,7 +595,7 @@ class Fitting_s_space(Fitting_Class):
         
         self.update_log(params, list_s, list_theta_s, list_theta_s_fit, '1st')
         
-        list_theta_fitting_add = [0]*len(list_theta_fitting)
+        list_theta_fitting_high_accuracy = [0]*len(list_theta_fitting)
         # 高精度化のための追加フィット
         if self.mode_high_accuracy == 1:
             list_tgt = list_theta - list_theta_fitting # エラーの時系列データ
